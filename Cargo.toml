@@ -9,6 +9,3 @@ keywords = ["xml"]
 license = "MIT"
 readme = "README.md"
 edition = "2018"
-
-[dev-dependencies]
-pretty_assertions = "0.6"

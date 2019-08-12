@@ -1,5 +1,3 @@
-#[macro_use] extern crate pretty_assertions;
-
 use std::str;
 use xmlwriter::{XmlWriter, Options};
 
