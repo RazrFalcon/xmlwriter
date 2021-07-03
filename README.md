@@ -1,7 +1,9 @@
 ## xmlwriter
-[![Build Status](https://travis-ci.org/RazrFalcon/xmlwriter.svg?branch=master)](https://travis-ci.org/RazrFalcon/xmlwriter)
+![Build Status](https://github.com/RazrFalcon/xmlwriter/workflows/xmlwriter/badge.svg)
 [![Crates.io](https://img.shields.io/crates/v/xmlwriter.svg)](https://crates.io/crates/xmlwriter)
 [![Documentation](https://docs.rs/xmlwriter/badge.svg)](https://docs.rs/xmlwriter)
+[![Rust 1.32+](https://img.shields.io/badge/rust-1.32+-orange.svg)](https://www.rust-lang.org)
+![](https://img.shields.io/badge/unsafe-forbidden-brightgreen.svg)
 
 A simple, streaming, partially-validating XML writer that writes XML data into an internal buffer.
 
