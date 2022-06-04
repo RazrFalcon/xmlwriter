@@ -151,6 +151,7 @@ enum State {
     Attributes,
 }
 
+#[derive(Clone, Debug)]
 struct DepthData {
     range: Range<usize>,
     has_children: bool,
@@ -158,6 +159,7 @@ struct DepthData {
 
 
 /// An XML writer.
+#[derive(Clone, Debug)]
 pub struct XmlWriter {
     buf: Vec<u8>,
     state: State,
