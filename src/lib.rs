@@ -455,8 +455,30 @@ impl XmlWriter {
     /// # Panics
     ///
     /// - When called not after `start_element()`.
-    #[inline(never)]
     pub fn write_text_fmt(&mut self, fmt: fmt::Arguments) {
+        self.write_text_fmt_impl(fmt, true);
+    }
+    
+    /// Writes a text node.
+    ///
+    /// See `write_text_raw_fmt()` for details.
+    pub fn write_text_raw(&mut self, text: &str) {
+        self.write_text_raw_fmt(format_args!("{}", text));
+    }
+
+    /// Writes a formatted text node.
+    ///
+    /// No characters will be escaped.
+    ///
+    /// # Panics
+    ///
+    /// - When called not after `start_element()`.
+    pub fn write_text_raw_fmt(&mut self, fmt: fmt::Arguments) {
+        self.write_text_fmt_impl(fmt, false);
+    }
+
+    #[inline(never)]
+    fn write_text_fmt_impl(&mut self, fmt: fmt::Arguments, escape: bool) {
         if self.state == State::Empty || self.depth_stack.is_empty() {
             panic!("must be called after start_element()");
         }
@@ -473,7 +495,9 @@ impl XmlWriter {
 
         let start = self.buf.len();
         self.buf.write_fmt(fmt).unwrap();
-        self.escape_text(start);
+        if escape {
+            self.escape_text(start);
+        }
 
         if self.state == State::Attributes {
             self.depth_stack.push(DepthData {
@@ -484,7 +508,7 @@ impl XmlWriter {
 
         self.state = State::Document;
     }
-
+    
     fn escape_text(&mut self, mut start: usize) {
         while let Some(idx) = self.buf[start..].iter().position(|c| *c == b'<') {
             let i = start + idx;
