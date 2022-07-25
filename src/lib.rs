@@ -149,6 +149,7 @@ enum State {
     Empty,
     Document,
     Attributes,
+    CData
 }
 
 struct DepthData {
@@ -443,7 +444,7 @@ impl XmlWriter {
 
     /// Writes a text node.
     ///
-    /// See `write_text_fmt()` for details.
+    /// See [`write_text_fmt()`] for details.
     pub fn write_text(&mut self, text: &str) {
         self.write_text_fmt(format_args!("{}", text));
     }
@@ -455,14 +456,35 @@ impl XmlWriter {
     /// # Panics
     ///
     /// - When called not after `start_element()`.
-    #[inline(never)]
     pub fn write_text_fmt(&mut self, fmt: fmt::Arguments) {
+        self.write_text_fmt_impl(fmt, false);
+    }
+
+    /// Writes text inside a `<![CDATA[ ... ]]>` node.
+    /// 
+    /// # Panics
+    /// 
+    /// - When called not after `start_element()`.
+    /// - When the text contains the literal `]]>`.
+    pub fn write_cdata_text(&mut self, text: &str) {
+        if text.contains("]]>") {
+            panic!("CDATA text must not contain `]]>'");
+        }
+        self.write_text_fmt_impl(format_args!("{}", text), true)
+    }
+
+    #[inline(never)]
+    fn write_text_fmt_impl(&mut self, fmt: fmt::Arguments, cdata: bool) {
         if self.state == State::Empty || self.depth_stack.is_empty() {
             panic!("must be called after start_element()");
         }
 
         if self.state == State::Attributes {
             self.write_open_element();
+        }
+
+        if cdata && self.state != State::CData {
+            self.push_str("<![CDATA[");
         }
 
         if self.state != State::Empty {
@@ -473,7 +495,9 @@ impl XmlWriter {
 
         let start = self.buf.len();
         self.buf.write_fmt(fmt).unwrap();
-        self.escape_text(start);
+        if !cdata {
+            self.escape_text(start);
+        }
 
         if self.state == State::Attributes {
             self.depth_stack.push(DepthData {
@@ -482,7 +506,7 @@ impl XmlWriter {
             });
         }
 
-        self.state = State::Document;
+        self.state = if cdata { State::CData } else { State::Document };
     }
 
     fn escape_text(&mut self, mut start: usize) {
@@ -501,6 +525,10 @@ impl XmlWriter {
                 if !self.preserve_whitespaces {
                     self.write_new_line();
                     self.write_node_indent();
+                }
+
+                if self.state == State::CData {
+                    self.push_str("]]>");
                 }
 
                 self.push_str("</");
