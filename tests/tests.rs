@@ -588,6 +588,18 @@ fn write_text_12() -> io::Result<()> {
 }
 
 #[test]
+fn write_text_cdata() -> io::Result<()> {
+    let mut w = XmlWriter::new(Options::default());
+    w.start_element("script");
+    w.write_cdata_text("function cmp(a,b) { return (a<b)?-1:(a>b)?1:0; }");
+    text_eq!(w.end_document(),
+"<script><![CDATA[
+    function cmp(a,b) { return (a<b)?-1:(a>b)?1:0; }
+]]></script>
+");
+}
+
+#[test]
 fn write_preserve_text_01() -> io::Result<()> {
     let mut w = XmlWriter::new(Vec::<u8>::new(), Options::default());
     w.set_preserve_whitespaces(true);

@@ -150,6 +150,7 @@ enum State {
     Empty,
     Document,
     Attributes,
+    CData
 }
 
 struct DepthData<'a> {
@@ -246,6 +247,7 @@ impl<W: Write> fmt::Write for FmtWriter<W> {
 }
 
 /// An XML writer.
+#[derive(Clone, Debug)]
 pub struct XmlWriter<'a, W: Write> {
     // When you control what you're writing enough that you know the bytes are already escaped or
     // don't need escaping at all, then use fmt_writer.writer.write_all()?; directly. Otherwise,
@@ -559,7 +561,7 @@ impl<'a, W: Write> XmlWriter<'a, W> {
 
     /// Writes a text node.
     ///
-    /// See `write_text_fmt()` for details.
+    /// See [`write_text_fmt()`] for details.
     pub fn write_text<T: Display + ?Sized>(&mut self, text: &T) -> io::Result<()> {
         self.write_text_fmt(format_args!("{}", text))
     }
@@ -581,6 +583,10 @@ impl<'a, W: Write> XmlWriter<'a, W> {
             self.write_open_element()?;
         }
 
+        if cdata && self.state != State::CData {
+            self.push_str("<![CDATA[");
+        }
+
         if self.state != State::Empty {
             self.write_new_line()?;
         }
@@ -598,10 +604,23 @@ impl<'a, W: Write> XmlWriter<'a, W> {
                 has_children: false,
             });
         }
-
-        self.state = State::Document;
+        
+        self.state = if cdata { State::CData } else { State::Document };
 
         Ok(())
+    }
+  
+    /// Writes text inside a `<![CDATA[ ... ]]>` node.
+    /// 
+    /// # Panics
+    /// 
+    /// - When called not after `start_element()`.
+    /// - When the text contains the literal `]]>`.
+    pub fn write_cdata_text(&mut self, text: &str) {
+        if text.contains("]]>") {
+            panic!("CDATA text must not contain `]]>'");
+        }
+        self.write_text_fmt_impl(format_args!("{}", text), true)
     }
 
     /// Closes an open element.
@@ -612,6 +631,10 @@ impl<'a, W: Write> XmlWriter<'a, W> {
                 if !self.preserve_whitespaces {
                     self.write_new_line()?;
                     self.write_node_indent()?;
+                }
+                
+                if self.state == State::CData {
+                    self.fmt_writer.writer.write_all("]]>")?;
                 }
 
                 self.fmt_writer.writer.write_all(b"</")?;
