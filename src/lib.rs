@@ -150,7 +150,7 @@ enum State {
     Empty,
     Document,
     Attributes,
-    CData
+    CData,
 }
 
 struct DepthData<'a> {
@@ -223,6 +223,7 @@ enum Escape {
     Comment,
     AttributeValue,
     Text,
+    CData,
 }
 
 impl<W: Write> fmt::Write for FmtWriter<W> {
@@ -235,7 +236,9 @@ impl<W: Write> fmt::Write for FmtWriter<W> {
             Escape::Text => self.write_escaped(s, false),
             // We don't bother escaping double hyphen (--) in comment as it's
             // unlikely to ever happen, and even libxml2 does not do it.
-            Escape::Comment => self.writer.write_all(s.as_bytes()),
+            // CDATA obviously doesn't need escaping, but we still need to round-trip
+            // both text types through FmtWriter.
+            Escape::Comment | Escape::CData => self.writer.write_all(s.as_bytes()),
         };
         if error.is_err() {
             self.error_kind = Some(error.as_ref().unwrap_err().kind());
@@ -247,7 +250,6 @@ impl<W: Write> fmt::Write for FmtWriter<W> {
 }
 
 /// An XML writer.
-#[derive(Clone, Debug)]
 pub struct XmlWriter<'a, W: Write> {
     // When you control what you're writing enough that you know the bytes are already escaped or
     // don't need escaping at all, then use fmt_writer.writer.write_all()?; directly. Otherwise,
@@ -573,8 +575,12 @@ impl<'a, W: Write> XmlWriter<'a, W> {
     /// # Panics
     ///
     /// - When called not after `start_element()`.
-    #[inline(never)]
     pub fn write_text_fmt(&mut self, fmt: fmt::Arguments) -> io::Result<()> {
+        self.write_text_fmt_impl(fmt, false)
+    }
+
+    #[inline(never)]
+    fn write_text_fmt_impl(&mut self, fmt: fmt::Arguments, cdata: bool) -> io::Result<()> {
         if self.state == State::Empty || self.depth_stack.is_empty() {
             panic!("must be called after start_element()");
         }
@@ -584,7 +590,7 @@ impl<'a, W: Write> XmlWriter<'a, W> {
         }
 
         if cdata && self.state != State::CData {
-            self.push_str("<![CDATA[");
+            self.fmt_writer.writer.write_all(b"<![CDATA[")?;
         }
 
         if self.state != State::Empty {
@@ -593,7 +599,7 @@ impl<'a, W: Write> XmlWriter<'a, W> {
 
         self.write_node_indent()?;
 
-        self.fmt_writer.escape = Some(Escape::Text);
+        self.fmt_writer.escape = Some(if cdata { Escape::CData } else { Escape::Text });
         self.fmt_writer
             .write_fmt(fmt)
             .map_err(|_| self.fmt_writer.take_err())?;
@@ -604,19 +610,19 @@ impl<'a, W: Write> XmlWriter<'a, W> {
                 has_children: false,
             });
         }
-        
+
         self.state = if cdata { State::CData } else { State::Document };
 
         Ok(())
     }
-  
+
     /// Writes text inside a `<![CDATA[ ... ]]>` node.
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// - When called not after `start_element()`.
     /// - When the text contains the literal `]]>`.
-    pub fn write_cdata_text(&mut self, text: &str) {
+    pub fn write_cdata_text(&mut self, text: &str) -> io::Result<()> {
         if text.contains("]]>") {
             panic!("CDATA text must not contain `]]>'");
         }
@@ -632,9 +638,9 @@ impl<'a, W: Write> XmlWriter<'a, W> {
                     self.write_new_line()?;
                     self.write_node_indent()?;
                 }
-                
+
                 if self.state == State::CData {
-                    self.fmt_writer.writer.write_all("]]>")?;
+                    self.fmt_writer.writer.write_all(b"]]>")?;
                 }
 
                 self.fmt_writer.writer.write_all(b"</")?;
