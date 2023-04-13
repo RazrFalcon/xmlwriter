@@ -153,6 +153,7 @@ enum State {
     CData,
 }
 
+#[derive(Clone, Debug)]
 struct DepthData<'a> {
     element_name: Option<&'a str>,
     has_children: bool,
@@ -162,6 +163,7 @@ struct DepthData<'a> {
 // as we don't have access to the formatting stuff without a fmt::Write implementation, so
 // we provide it by wrapping the writer given to us while escaping appropriately any string to
 // be written, depending on the type of node we're writing.
+#[derive(Clone, Debug)]
 struct FmtWriter<W: Write> {
     writer: W,
     error_kind: Option<io::ErrorKind>,
@@ -249,6 +251,7 @@ impl<W: Write> fmt::Write for FmtWriter<W> {
 }
 
 /// An XML writer.
+#[derive(Clone, Debug)]
 pub struct XmlWriter<'a, W: Write> {
     // When you control what you're writing enough that you know the bytes are already escaped or
     // don't need escaping at all, then use fmt_writer.writer.write_all()?; directly. Otherwise,
