@@ -64,7 +64,7 @@ pub enum Indent {
 
 /// An XML writing options.
 #[derive(Clone, Copy, Debug)]
-pub struct Options {
+pub struct Options<'a> {
     /// Use single quote marks instead of double quote.
     ///
     /// # Examples
@@ -132,15 +132,43 @@ pub struct Options {
     ///
     /// Default: `None`
     pub attributes_indent: Indent,
+
+    /// Custom list of characters to escape, in addition to required ones (like `&` and `<`).
+    ///
+    /// # Examples
+    ///
+    /// `['\r', '\n', '💖']`
+    ///
+    /// Before:
+    ///
+    /// ```text
+    /// <p>
+    ///     some text
+    /// with newlines & a
+    /// heart 💖
+    /// </p>
+    /// ```
+    ///
+    /// After:
+    ///
+    /// ```text
+    /// <p>
+    ///     some text&#x0A;with newlines &amp; a&#x0A;heart &#x01F496;
+    /// </p>
+    /// ```
+    ///
+    /// Default: `[]`
+    pub escape_characters: &'a [char],
 }
 
-impl Default for Options {
+impl Default for Options<'_> {
     #[inline]
     fn default() -> Self {
         Options {
             use_single_quote: false,
             indent: Indent::Spaces(4),
             attributes_indent: Indent::None,
+            escape_characters: &[],
         }
     }
 }
@@ -164,7 +192,7 @@ struct DepthData<'a> {
 // we provide it by wrapping the writer given to us while escaping appropriately any string to
 // be written, depending on the type of node we're writing.
 #[derive(Clone, Debug)]
-struct FmtWriter<W: Write> {
+struct FmtWriter<'a, W: Write> {
     writer: W,
     error_kind: Option<io::ErrorKind>,
     // Set to None once the text is written, as a way to make sure the code
@@ -172,9 +200,10 @@ struct FmtWriter<W: Write> {
     escape: Option<Escape>,
     // Same as for Options, but kept available for write_escaped()
     use_single_quote: bool,
+    custom_escapes: &'a [char],
 }
 
-impl<W: Write> FmtWriter<W> {
+impl<W: Write> FmtWriter<'_, W> {
     fn take_err(&mut self) -> io::Error {
         let error_kind = self
             .error_kind
@@ -194,29 +223,43 @@ impl<W: Write> FmtWriter<W> {
 
     fn write_escaped(&mut self, s: &str, escape_quotes: bool) -> io::Result<()> {
         let mut part_start_pos = 0;
-        for (byte_pos, byte) in s.bytes().enumerate() {
-            let escaped_char: Option<&[u8]> = match byte {
-                b'&' => Some(b"&amp;"),
-                b'>' => Some(b"&gt;"),
-                b'<' => Some(b"&lt;"),
-                b'"' if escape_quotes && !self.use_single_quote => Some(b"&quot;"),
-                b'\'' if escape_quotes && self.use_single_quote => Some(b"&apos;"),
-                _ => None,
-            };
-            if let Some(escaped_char) = escaped_char {
+        for (c_pos, c) in s.char_indices() {
+            let writer = &mut self.writer;
+            let mut esc = |fmt| -> io::Result<()> {
                 // We have a character to escape, so write the previous part and the escaped character
-                self.writer
-                    .write_all(&s[part_start_pos..byte_pos].as_bytes())?;
-                self.writer.write_all(escaped_char)?;
+                writer.write_all(s[part_start_pos..c_pos].as_bytes())?;
+                writer.write_fmt(fmt)?;
                 // +1 skips the escaped character from part, for afterwards
-                part_start_pos = byte_pos + 1;
+                part_start_pos = c_pos + 1;
+                // Guarantee character boundary
+                while !s.is_char_boundary(part_start_pos) {
+                    part_start_pos += 1;
+                }
+                Ok(())
+            };
+
+            match c {
+                '&' => esc(format_args!("&amp;"))?,
+                '>' => esc(format_args!("&gt;"))?,
+                '<' => esc(format_args!("&lt;"))?,
+                '"' if escape_quotes && !self.use_single_quote => esc(format_args!("&quot;"))?,
+                '\'' if escape_quotes && self.use_single_quote => esc(format_args!("&apos;"))?,
+                c if self.custom_escapes.contains(&c) => match c {
+                    // Basic Latin (ASCII)
+                    '\x00'..='\x7F' => esc(format_args!("&#x{:02X};", c as u32))?,
+                    // Basic Multilingual Plane (UTF-16)
+                    '\u{0080}'..='\u{FFFF}' => esc(format_args!("&#x{:04X};", c as u32))?,
+                    // Supplementary Planes
+                    '\u{010000}'..='\u{10FFFF}' => esc(format_args!("&#x{:06X};", c as u32))?,
+                }
+                // There's nothing to be done if the character doesn't need to be escaped, as we'll
+                // either wait until we get an escapable character, or wait until the end of the
+                // string where we'll just write out the rest of the string.
+                _ => (),
             }
-            // There's nothing to be done if the character doesn't need to be escaped, as we'll either
-            // wait until we get an escapable character, or wait until the end of the string where we'll
-            // just write out the rest of the string.
         }
         // Write the rest of the string which needs no escaping
-        self.writer.write_all(&s[part_start_pos..].as_bytes())
+        self.writer.write_all(s[part_start_pos..].as_bytes())
     }
 }
 
@@ -228,7 +271,7 @@ enum Escape {
     CData,
 }
 
-impl<W: Write> fmt::Write for FmtWriter<W> {
+impl<W: Write> fmt::Write for FmtWriter<'_, W> {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         let error = match self
             .escape
@@ -258,23 +301,24 @@ pub struct XmlWriter<'a, W: Write> {
     // set fmt_writer.escape to the appropriate escaping type and use fmt_writer.write_fmt()?; or
     // fmt_writer.write_str()?; if you are only printing a string directly without formatting, but
     // still want escaping to be done.
-    fmt_writer: FmtWriter<W>,
+    fmt_writer: FmtWriter<'a, W>,
     state: State,
     preserve_whitespaces: bool,
     depth_stack: Vec<DepthData<'a>>,
-    opt: Options,
+    opt: Options<'a>,
 }
 
 impl<'a, W: Write> XmlWriter<'a, W> {
     /// Creates a new `XmlWriter`, writing data in the writer.
     #[inline]
-    pub fn new(writer: W, opt: Options) -> Self {
+    pub fn new(writer: W, opt: Options<'a>) -> Self {
         XmlWriter {
             fmt_writer: FmtWriter {
                 writer,
                 error_kind: None,
                 escape: None,
                 use_single_quote: opt.use_single_quote,
+                custom_escapes: opt.escape_characters,
             },
             state: State::Empty,
             preserve_whitespaces: false,

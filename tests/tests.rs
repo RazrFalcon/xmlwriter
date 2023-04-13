@@ -682,3 +682,28 @@ fn multibytes_escaping() -> io::Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn custom_escape_characters() -> io::Result<()> {
+    let opt = Options {
+        escape_characters: &['A', '\r', '\n', '¤', 'Ω', '💖'],
+        ..Options::default()
+    };
+
+    let mut w = XmlWriter::new(Vec::<u8>::new(), opt);
+    w.start_element("test")?;
+    w.write_attribute("foo", "an ✨attribute✨ with a\r\nnewline in it\t💖")?;
+    w.write_text("A text node with ¤ and § and Ω and ω")?;
+    w.write_cdata_text("some CDATA with ¤escaped¤ ΩcharactersΩ\nin it")?;
+
+    text_eq!(
+        w.end_document()?,
+        r#"<test foo="an ✨attribute✨ with a&#x0D;&#x0A;newline in it	&#x01F496;">
+    &#x41; text node with &#x00A4; and § and &#x03A9; and ω<![CDATA[
+    some CDATA with ¤escaped¤ ΩcharactersΩ
+in it
+]]></test>
+"#
+    );
+    Ok(())
+}
