@@ -589,14 +589,15 @@ fn write_text_12() -> io::Result<()> {
 
 #[test]
 fn write_text_cdata() -> io::Result<()> {
-    let mut w = XmlWriter::new(Options::default());
-    w.start_element("script");
-    w.write_cdata_text("function cmp(a,b) { return (a<b)?-1:(a>b)?1:0; }");
-    text_eq!(w.end_document(),
+    let mut w = XmlWriter::new(Vec::<u8>::new(), Options::default());
+    w.start_element("script")?;
+    w.write_cdata_text("function cmp(a,b) { return (a<b)?-1:(a>b)?1:0; }")?;
+    text_eq!(w.end_document()?,
 "<script><![CDATA[
     function cmp(a,b) { return (a<b)?-1:(a>b)?1:0; }
 ]]></script>
 ");
+    Ok(())
 }
 
 #[test]
