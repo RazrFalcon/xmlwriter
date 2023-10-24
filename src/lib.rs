@@ -133,7 +133,7 @@ pub struct Options {
     /// Default: `None`
     pub attributes_indent: Indent,
 
-    /// Write self-closing tags when element is empty
+    /// Write self-closing tags when element is empty.
     ///
     /// # Examples
     ///
@@ -146,10 +146,11 @@ pub struct Options {
     /// After:
     ///
     /// ```text
-    /// <tag></tag>
+    /// <tag>
+    /// </tag>
     /// ```
     ///
-    /// Default: Enabled
+    /// Default: enabled
     pub enable_self_closing: bool,
 }
 
@@ -658,6 +659,11 @@ impl<'a, W: Write> XmlWriter<'a, W> {
     pub fn end_element(&mut self) -> io::Result<()> {
         if let Some(depth) = self.depth_stack.pop() {
             if depth.has_children || !self.opt.enable_self_closing {
+                // Close the empty node here as there were no children to close it.
+                if !depth.has_children && !self.opt.enable_self_closing {
+                    self.fmt_writer.writer.write_all(b">")?;
+                }
+
                 if !self.preserve_whitespaces {
                     self.write_new_line()?;
                     self.write_node_indent()?;
