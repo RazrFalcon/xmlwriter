@@ -592,11 +592,13 @@ fn write_text_cdata() -> io::Result<()> {
     let mut w = XmlWriter::new(Vec::<u8>::new(), Options::default());
     w.start_element("script")?;
     w.write_cdata_text("function cmp(a,b) { return (a<b)?-1:(a>b)?1:0; }")?;
-    text_eq!(w.end_document()?,
-"<script><![CDATA[
+    text_eq!(
+        w.end_document()?,
+        "<script><![CDATA[
     function cmp(a,b) { return (a<b)?-1:(a>b)?1:0; }
 ]]></script>
-");
+"
+    );
     Ok(())
 }
 
@@ -680,5 +682,33 @@ fn multibytes_escaping() -> io::Result<()> {
 </test>
 "#
     );
+    Ok(())
+}
+
+#[test]
+fn disabled_self_close() -> io::Result<()> {
+    let opts = Options {
+        enable_self_closing: false,
+        ..Options::default()
+    };
+    let mut w = XmlWriter::new(Vec::<u8>::new(), opts);
+    w.start_element("empty1")?;
+    w.end_element()?;
+    w.start_element("wrapper")?;
+    w.start_element("empty2")?;
+    w.end_element()?;
+    w.end_element()?;
+
+    text_eq!(
+        w.end_document()?,
+        r#"<empty1>
+</empty1>
+<wrapper>
+    <empty2>
+    </empty2>
+</wrapper>
+"#
+    );
+
     Ok(())
 }

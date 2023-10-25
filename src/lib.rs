@@ -132,6 +132,26 @@ pub struct Options {
     ///
     /// Default: `None`
     pub attributes_indent: Indent,
+
+    /// Write self-closing tags when element is empty.
+    ///
+    /// # Examples
+    ///
+    /// Before:
+    ///
+    /// ```text
+    /// <tag/>
+    /// ```
+    ///
+    /// After:
+    ///
+    /// ```text
+    /// <tag>
+    /// </tag>
+    /// ```
+    ///
+    /// Default: enabled
+    pub enable_self_closing: bool,
 }
 
 impl Default for Options {
@@ -141,6 +161,7 @@ impl Default for Options {
             use_single_quote: false,
             indent: Indent::Spaces(4),
             attributes_indent: Indent::None,
+            enable_self_closing: true,
         }
     }
 }
@@ -206,7 +227,7 @@ impl<W: Write> FmtWriter<W> {
             if let Some(escaped_char) = escaped_char {
                 // We have a character to escape, so write the previous part and the escaped character
                 self.writer
-                    .write_all(&s[part_start_pos..byte_pos].as_bytes())?;
+                    .write_all(s[part_start_pos..byte_pos].as_bytes())?;
                 self.writer.write_all(escaped_char)?;
                 // +1 skips the escaped character from part, for afterwards
                 part_start_pos = byte_pos + 1;
@@ -216,7 +237,7 @@ impl<W: Write> FmtWriter<W> {
             // just write out the rest of the string.
         }
         // Write the rest of the string which needs no escaping
-        self.writer.write_all(&s[part_start_pos..].as_bytes())
+        self.writer.write_all(s[part_start_pos..].as_bytes())
     }
 }
 
@@ -637,7 +658,12 @@ impl<'a, W: Write> XmlWriter<'a, W> {
     #[inline(never)]
     pub fn end_element(&mut self) -> io::Result<()> {
         if let Some(depth) = self.depth_stack.pop() {
-            if depth.has_children {
+            if depth.has_children || !self.opt.enable_self_closing {
+                // Close the empty node here as there were no children to close it.
+                if !depth.has_children && !self.opt.enable_self_closing {
+                    self.fmt_writer.writer.write_all(b">")?;
+                }
+
                 if !self.preserve_whitespaces {
                     self.write_new_line()?;
                     self.write_node_indent()?;
